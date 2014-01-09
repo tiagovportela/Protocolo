@@ -17,11 +17,3 @@ Linux
 programação
 Linguagem C
 .
-Neste relatório procuramos apresentar a nossa implementação do
-referido protocolo, o qual tem como esquema arquitectónico o que a seguir
-se ilustra. Seguidamente, apresentamos a estrutura do código e as
-principais funcionalidades do protocolo, bem como as estratégias de
-implementação usadas.
-Na parte final, destacamos os testes realizados por forma a validar os
-resultados esperados e referimos as nossas conclusões acerca do projecto
-realizado
