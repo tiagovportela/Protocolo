@@ -1,0 +1,67 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+ 
+#include "protocolo_receptor.c"
+ 
+int irec=0;     //nº de tramas de Informação recebidas
+int orr=0;      //nº de tramas RR enviadas
+int orej=0;     //nº de tramas REJ enviadas
+ 
+void registoOcorrencias()
+{
+    printf("\n * Registo de Ocorrências * \n");
+    printf("\tTramas de Informação recebidas: %d \n", irec);
+    printf("\tNúmero de tramas RR enviadas: %d\n", orr);
+    printf("\tNúmero de tramas REJ enviadas: %d\n", orej);
+}
+ 
+int main()
+{
+    printf("\n * * * * * RECEPTOR * * * * *\n");
+    int fileDescriptor = llopen("/dev/ttyS0");
+    printf(" * * * Estabelecida a ligação da porta série (RS232) * * *\n");
+    printf("\n * * * Início da Fase de Transferência de dados * * *\n");
+     
+    unsigned char trama[MAX_SIZE];
+    int i,j;
+    int n = 0;
+     
+    while(n < 1) //enquanto nao "ler" nada na porta série
+    {
+        n = llread(fileDescriptor, trama);
+    }
+     
+    while(n > 6) //se n > 5 trata-se de uma trama de I
+    {
+        n = llread(fileDescriptor, trama);
+        if(n == -1)
+        {
+            enviarREJ();
+            n = 7;
+            continue;
+        }
+        if(n == 0)
+        {
+            n = 7;
+            continue;
+        }
+    }
+    if(n == 5)  //se n=5, a ultima trama I foi recebida
+    {
+        printf("\n * * * Fim da Fase de Transferência de dados * * *\n");
+        n = llclose(fileDescriptor);
+         
+        while(n < 0)
+        {
+            n = llclose(fileDescriptor);
+            if(n == -1)
+                continue;
+            else
+                break; 
+        }
+        registoOcorrencias();
+        return 0;
+    }
+     
+}
