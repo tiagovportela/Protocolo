@@ -1,0 +1,501 @@
+/*Non-Canonical Input Processing*/
+ 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+ 
+#define _POSIX_SOURCE 1     /* POSIX compliant source */
+#define  _XOPEN_SOURCE_EXTENDED 1
+#define MAX_SIZE 1000       /* tamanho maximo da trama */
+#define FLAG 0x7E           /* flag de controlo - 0111_1110 */
+ 
+extern int irec, orr, orej;  // variaveis (informativas) globais 
+ 
+struct termios oldtio, newtio;
+struct linkLayer {      // estrutura utilizada para a transmissao de tramas
+    int fileDescriptor;
+    unsigned int Ns;
+    unsigned int Nr;
+    unsigned int numTransmissions;
+    unsigned char trama[MAX_SIZE];
+    FILE *fp;
+    char nome_ficheiro[12];
+}protocolo;
+ 
+void definicoes()
+{
+    int escolha;
+    printf("Pretende utilizar a definição automática do Baud Rate?? (escolha: 1 - sim ou 2 - não)");
+    scanf("%d", &escolha);
+    if (escolha == 2)
+    {
+        definirBaudrate();
+    }
+    else  // definiçao de "baud rate" padrao para a transmissao
+    {
+        newtio.c_cflag = B38400 | CS8 | CLOCAL | CREAD;
+    }
+}
+ 
+void definirBaudrate()  // permite ao utilizador escolher o "baud rate" pretendido
+{
+    unsigned int escolha;
+    printf("Lista de baudrates suportados pela porta série:\n");
+    printf("\t1 - 50\t\t2 - 75\t\t3 - 110\t\t4- 134\t\t5 - 150\n\t6 - 200\t\t7 - 300\t\t8 - 600\t\t9 - 1200\t10 - 1800\n\t11 - 2400\t12 - 4800\t13 - 9600\t14 - 19200\n\t15 - 38400\t16 - 57600\t17 - 115200\n");
+    printf("Qual o baud rate pretendido? (escolha o número da lista, entre 1 e 17) ");
+    scanf("%u", &escolha);
+    switch (escolha)
+    {
+        case 1 : newtio.c_cflag = B50 | CS8 | CLOCAL | CREAD;
+        case 2 : newtio.c_cflag = B75 | CS8 | CLOCAL | CREAD;
+        case 3 : newtio.c_cflag = B110 | CS8 | CLOCAL | CREAD;
+        case 4 : newtio.c_cflag = B134 | CS8 | CLOCAL | CREAD;     
+        case 5 : newtio.c_cflag = B150 | CS8 | CLOCAL | CREAD;
+        case 6 : newtio.c_cflag = B200 | CS8 | CLOCAL | CREAD;
+        case 7 : newtio.c_cflag = B300 | CS8 | CLOCAL | CREAD;
+        case 8 : newtio.c_cflag = B600 | CS8 | CLOCAL | CREAD;
+        case 9 : newtio.c_cflag = B1200 | CS8 | CLOCAL | CREAD;
+        case 10 : newtio.c_cflag = B1800 | CS8 | CLOCAL | CREAD;
+        case 11 : newtio.c_cflag = B2400 | CS8 | CLOCAL | CREAD;
+        case 12 : newtio.c_cflag = B4800 | CS8 | CLOCAL | CREAD;
+        case 13 : newtio.c_cflag = B9600 | CS8 | CLOCAL | CREAD;
+        case 14 : newtio.c_cflag = B19200 | CS8 | CLOCAL | CREAD;
+        case 15 : newtio.c_cflag = B38400 | CS8 | CLOCAL | CREAD;
+        case 16 : newtio.c_cflag = B57600 | CS8 | CLOCAL | CREAD;
+        case 17 : newtio.c_cflag = B115200 | CS8 | CLOCAL | CREAD;
+        default : newtio.c_cflag = B38400 | CS8 | CLOCAL | CREAD;
+    }
+}
+ 
+int receberSET()    //verifica se foi recebida uma trama "SET" correcta
+{
+    unsigned char TRAMA[5];
+    unsigned char A = 0x03;
+    unsigned char C = 0x03;
+    unsigned char BCC = A ^ C;
+ 
+    if(read(protocolo.fileDescriptor, TRAMA, 5) == 5)
+    {
+        if(TRAMA[0] == FLAG)
+        {
+            if(TRAMA[1] == A)
+            {
+                if(TRAMA[2] == C)
+                {
+                    if(TRAMA[3] == BCC)
+                    {
+                        if(TRAMA[4] == FLAG)
+                        {
+                            printf(" Trama SET recebida \n");                           
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else
+        return 0;
+         
+    return 0;
+}
+ 
+int receberDISC()   //verifica se foi recebida uma trama "DISC" correcta
+{
+    unsigned char TRAMA[5];
+    unsigned char A = 0x01;
+    unsigned char C = 0x0B;
+    unsigned char BCC = A ^ C;
+     
+    if(read(protocolo.fileDescriptor, TRAMA, 5) == 5)
+    {      
+            if(TRAMA[0] == FLAG)
+            {
+                if(TRAMA[1] == A)
+                {
+                    if(TRAMA[2] == C)
+                    {
+                        if(TRAMA[3] == BCC)
+                        {
+                            if(TRAMA[4] == FLAG)
+                            {
+                                printf(" Trama DISC recebida \n");
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+    }
+    else
+        return 0;
+         
+    return 0;
+}
+ 
+int receberUA() //verifica se foi recebida uma trama "UA" correcta
+{
+    unsigned char TRAMA[5];
+    unsigned char A = 0x01;
+    unsigned char C = 0x07;
+    unsigned char BCC = A ^ C;
+     
+    if(read(protocolo.fileDescriptor,TRAMA,5) == 5)
+    {
+        if(TRAMA[0] == FLAG)
+        {
+            if(TRAMA[1] == A)
+            {
+                if(TRAMA[2] == C)
+                {
+                    if(TRAMA[3] == BCC)
+                    {
+                        if(TRAMA[4] == FLAG)
+                        {
+                            printf(" Trama UA recebida \n");
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else
+        return 0;
+         
+    return 0;
+}
+ 
+void destuffing(unsigned char temp[], unsigned char v[], int contar) //funçao para "bit destuffing"
+{
+    int i, j;
+    for(i = 0, j = 0 ; j < contar ; i++, j++)
+    {
+        if(temp[i] == 0x7D && temp[i+1] == 0x5D)
+        {
+            v[j]=0x7D;
+            i++;
+        }
+        else if(temp[i] == 0x7D && temp[i+1] == 0x5E)
+        {
+            v[j]=0x7E;
+            i++;
+        }
+        else
+            v[j]=temp[i];
+    }
+ 
+}
+ 
+//funçao que envia para a porta serie as tramas passadas por argumento
+int enviar(unsigned char TRAMA[], char tipo[]) 
+{
+    newtio.c_cc[VMIN] = 0;
+    if(write(protocolo.fileDescriptor, TRAMA, 5) == 5)  // se enviar correctamente uma trama
+    {
+        if(tipo[0]=='R')    // trama RR ou REJ
+        {  
+            printf("%s enviado (Nr=%d)\n", tipo, protocolo.Nr);
+        }
+        else    // trama UA ou DISC
+        {
+            printf("%s enviado \n", tipo);
+        }
+        newtio.c_cc[VMIN] = 1;
+        return 1;   //envio bem sucedido
+    }
+    else
+    {
+        printf(" !!! Erro no envio da trama %s !!!", tipo);
+        return 0;   //envio mal sucedido
+    }
+}
+ 
+int enviarDISC()
+{
+    unsigned char DISC[5]={FLAG, 0x01, 0x0B, 0x01^0x0B, FLAG};  //declara a trama DISC
+    return enviar(DISC, "DISC");    //chama a função que envia a trama
+}
+ 
+int enviarUA()
+{
+    unsigned char UA[5]={FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};  //declara a trama UA
+    return enviar(UA, "UA");    //chama a função que envia a trama
+}
+ 
+int enviarRR()
+{
+    unsigned char c;
+     
+    if(protocolo.Nr == 1)   // verifica o valor de Nr
+        c = 0x21;
+    else
+        c = 0x01;
+     
+    unsigned char RR[5]={FLAG, 0x03, c, 0x03 ^ c, FLAG};    //declara a trama RR
+    orr++;  //incrementa a contagem
+    return enviar(RR, "RR");    //chama a função que envia a trama
+}
+ 
+int enviarREJ()
+{
+    unsigned char c;
+     
+    if(protocolo.Nr)    // verifica o valor de Nr
+        c=0x25;
+    else
+        c=0x05;
+     
+    unsigned char REJ[5]={FLAG, 0x03, c, 0x03 ^ c, FLAG};   //declara a trama REJ
+    orej++; //incrementa a contagem
+    return enviar(REJ, "REJ");  //chama a função que envia a trama   
+}
+ 
+int llopen(char * porta)
+{
+    protocolo.fileDescriptor = open(porta, O_RDWR | O_NOCTTY );
+     
+    if (protocolo.fileDescriptor < 0)
+    {
+        perror(porta);
+        return -1;
+    }
+    if (tcgetattr(protocolo.fileDescriptor, &oldtio) == -1) /* save current port settings */
+    {
+        perror("tcgetattr");
+        return -1;
+    }
+    bzero(&newtio, sizeof(newtio));
+    definicoes();
+    newtio.c_iflag = IGNPAR;
+    newtio.c_oflag = OPOST;
+    newtio.c_lflag = 0;
+    newtio.c_cc[VTIME] = 0;   /* inter-character timer unused */
+    newtio.c_cc[VMIN] = 1;   /* blocking read until 5 chars received */
+ 
+    tcflush(protocolo.fileDescriptor, TCIOFLUSH);
+    if (tcsetattr(protocolo.fileDescriptor,TCSANOW,&newtio) == -1)
+    {
+        perror("tcsetattr");
+        return -1;
+    }
+     
+    //Fase de estabelecimento: verifica a recepção da trama "SET"
+    printf("\n * * * Início da Fase de Estabelecimento * * *\n");
+     
+    while(1)
+    {
+    if(receberSET())
+    {
+        if(enviarUA() == 0)
+        {
+            printf(" !!! Erro no envio da trama UA !!! \n");
+            continue;
+        }
+        else
+        {
+            protocolo.Nr = 1;
+            printf(" * * * Fim da Fase de Estabelecimento * * * \n");
+            return protocolo.fileDescriptor;
+        }
+    }
+    continue;
+    }
+}
+ 
+int llread(int fd, unsigned char * buffer0)
+{
+    int n, i=0, j, l;
+    int m=0;
+    int f=0;
+     
+    unsigned char buff[MAX_SIZE];
+     
+    /* implementaçao da maquina de estados que verifica a posiçao de leitura na trama I,
+    ignorando possiveis erros de falha da ligação durante uma transmissao, guardando apenas
+    pacotes de dados correctamente recebidos */
+    while(1)
+    {
+        n = read(fd, buffer0, 15);  //leitura do buffer da porta serie 16 a 16 caracteres
+        for(i=0;i<n;i++)
+        {
+        //se for encontrado na trama "7E 03" significa que estamos no campo de dados da trama I
+            if((f==0) && (buffer0[i]==0x7E) && (buffer0[i+1]==0x03) && (i<n))
+            {
+                f = 1;
+            }
+        // se for encontrado novamente "7E 03" significa que estamos perante outra trama, sem
+        // que a anterior fosse concluida, logo houve falha na ligação
+            else if((f==1) && (buffer0[i]==0x7E) && (buffer0[i+1]==0x03) && (i<n))
+            {
+                m = 0; // o vector de dados recentemente lidos é "apagado"
+            }
+        // se for encontrado "7E" sem estar seguido de "03" significa que terminou o campo de dados
+            else if((f==1) && (buffer0[i]==0x7E) && (buffer0[i+1]!=0x03) && (i<n))
+            {
+                f = 2;
+                buff[m] = buffer0[i];
+                break;
+            }
+        // enquanto o estado for "1", significa que devemos guardar os dados recebidos
+            if(f==1)
+            {
+                buff[m] = buffer0[i];
+                m++;
+            }
+        }
+        if(f==2)
+            break;
+    }
+     
+    int q = 0;
+    unsigned char BCC, BCC2;
+     
+    if(m > 0)
+    {
+        unsigned char buffer[m];
+        destuffing(buff, buffer, m);
+         
+        BCC = 0x03 ^ buffer[2];
+         
+        if(buffer[0] == FLAG)
+        {
+            if(buffer[1] == 0x03)
+            {
+                if(buffer[2] == 0x02 || buffer[2] == 0x00)
+                {
+                    if(buffer[2] == 0x02)   //actualizaçao do valor de Nr conforme o recebido
+                        protocolo.Nr=0;    
+                    else
+                    {
+                        if(buffer[2] == 0x00)
+                        protocolo.Nr=1;
+                    }
+                     
+                    if(buffer[3] == BCC)
+                    {
+                        if(buffer[4] == 0x01) //C
+                        {
+                            if(buffer[5] == 0x00) //T1
+                            {
+                                int tam_V1 = buffer[6];
+                                char tam_fich[tam_V1];
+                                for(j=7;j<tam_V1+7;j++)
+                                {
+                                    tam_fich[j-7] = buffer[j];
+                                }
+            // apenas implementamos uma versão de 11 caracteres disponiveis para o nome do ficheiro
+            // pois não conseguimos configurar o emissor correctamente para o envio de qualquer nome
+                                int tamanho_fich = 11; 
+                                // escrita do nome do ficheiro
+                                for(j = 0; j < tamanho_fich ; j++)
+                                {                              
+                                    protocolo.nome_ficheiro[j] = buffer[11+j];
+                                }
+                                remove(protocolo.nome_ficheiro);   
+                                protocolo.fp = fopen(protocolo.nome_ficheiro,"ab");
+                                protocolo.numTransmissions++;
+                                printf(" Pacote de controlo Inicial recebido \n Numero de Transmissões = %d\n",protocolo.numTransmissions);
+                                irec++; // primeira trama I recebida
+                                 
+                                if(enviarRR())
+                                {
+                                    return 10;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if(buffer[4] == 0x00) //campo de dados
+                            {
+                                int k = 256*buffer[6] + buffer[7];
+                                unsigned char dados[k];
+                                 
+                                for(l = 0 ; l < k ; l++)
+                                {
+                                    dados[l] = buffer[l+8];
+                                }
+                                 
+                                fwrite(dados,k,1,protocolo.fp);                        
+                                printf(" Pacote de dados recebido \n Numero de Transmissões = %d, K = %d\n",protocolo.numTransmissions,k);
+                                protocolo.numTransmissions++;
+                                irec++;
+                                 
+                                if(enviarRR())
+                                {
+                                    return 10;
+                                }
+                            }
+                            else
+                            {
+                                if(buffer[4] == 0x03) //C
+                                {
+                                    printf(" Pacote de controlo Final recebido \n Numero de Transmissões = %d\n",protocolo.numTransmissions);
+                                    protocolo.numTransmissions++;
+                                    irec++;     //ultima trama I recebida
+                                    enviarRR();
+                                    fclose(protocolo.fp);
+                                     
+                                    return 5;
+                                }
+                                else
+                                {
+                                    return -1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+    return 0;
+}
+ 
+int llclose(int porta)
+{
+    if (tcsetattr(porta, TCSANOW, &oldtio) == -1)
+    {
+        perror("tcsetattr");
+        return -1;
+    }
+    else
+    {
+        //Fase de terminação
+        printf("\n * * * Início da Fase de Terminação * * * \n");
+ 
+        if(receberDISC())   //verifica o recepcçao da trama DISC
+        {
+            if(enviarDISC()) //envia a trama DISC
+            {
+                if(receberUA())
+                {
+                    printf(" * * * Fim da Fase de Terminação * * * \n");
+                    tcflush(protocolo.fileDescriptor,TCIOFLUSH);
+                    close(porta);
+                    return 1;
+                }
+                else
+                {
+                    printf(" !!! Erro na recepção da trama UA !!! \n");
+                    return -1;
+                }
+            }
+            else
+            {
+                printf(" !!! Erro no envio da trama DISC !!! \n");
+                return -1;
+            }
+        }
+        else
+        {
+            printf(" !!! Erro na recepção da trama DISC !!! \n");
+            return -1;
+        }
+    }
+}
